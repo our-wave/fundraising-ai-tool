@@ -79,7 +79,7 @@ service cloud.firestore {
     }
         
     // Settings Collection
-    match /settings /{id}{
+    match /settings/{id} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow update: if request.auth != null;

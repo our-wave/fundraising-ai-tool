@@ -28,7 +28,7 @@ Nonprofit staff spend hours repeating core narratives and trimming sections to f
 * Vitest and Testing Library for automated tests
 
 ## Running the Project Locally
-1. Install Node 18 or later and npm.
+1. Install Node 20 (see `.nvmrc`; run `nvm use`) and npm.
 2. Install dependencies: `npm install`.
 3. Create `.env.local` with your Firebase project settings and AI access keys using the Vite prefix:
    * `VITE_FIREBASE_API_KEY`
@@ -39,10 +39,14 @@ Nonprofit staff spend hours repeating core narratives and trimming sections to f
    * `VITE_FIREBASE_APP_ID`
    * `VITE_FIREBASE_MEASUREMENT_ID`
    * `VITE_AUTH_DOMAIN` for auth callbacks when required
-   * `VITE_GEMINI_API_KEY` for Google Gemini AI (get from [Google Cloud Console](https://console.cloud.google.com/apis/credentials))
    * `VITE_FIREBASE_STORAGE_FOLDER` for Firebase storage bucket folder
    
-   Ensure the Firebase project has Generative Language API and Firebase AI enabled.
+   Ensure Firebase AI Logic is enabled with the Gemini Developer API provider. Gemini calls go through Firebase AI Logic, so no separate Gemini API key is needed.
+
+   Context files are read from Firebase Storage in the browser, so the bucket needs the CORS config in `storage.cors.json` (one-time, e.g. from Cloud Shell):
+
+   `gcloud storage buckets update gs://<your-bucket> --cors-file=storage.cors.json`
+
 4. Start the dev server: `npm run dev`.
 5. Open `http://localhost:3000` and sign in with the configured provider to load grant recipes and drafts.
 

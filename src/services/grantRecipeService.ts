@@ -33,7 +33,7 @@ class GrantRecipeService extends FirestoreService<GrantRecipe> {
       outputsWithWordCount: [{ name: '', maxWords: 500, unit: 'words' }],
       inputParameters: [],
       tokenCount: 0,
-      modelType: "gemini-2.5-flash",
+      modelType: "gemini-flash-latest",
     };
   }
 
