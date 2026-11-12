@@ -161,9 +161,9 @@ export const GrantContextEditor: React.FC<GrantContextEditorProps> = ({ onChange
         setUploadingFileNames(uploadingNames);
         onUploadingChange?.(true);
 
-        // Calculate token counts; null means unavailable (e.g. browser CORS restriction on Gemini Files API)
-        // Text-readable files are read directly and counted via calcTokenCount (works in browser).
-        // Binary files (e.g. PDF) must use calcFileTokenCount which requires server-side API — returns null in browser.
+        // Calculate token counts; null means unavailable.
+        // Text-readable files are read directly and counted via calcTokenCount.
+        // Binary files (e.g. PDF) are sent inline to calcFileTokenCount.
         const TEXT_READABLE_TYPES = ["text/plain", "text/html", "application/json", "text/markdown"];
         const newContexts = await Promise.all(supportedFiles.map(async file => {
             let tokenCount: number | null = null;
@@ -182,7 +182,8 @@ export const GrantContextEditor: React.FC<GrantContextEditorProps> = ({ onChange
                 type: file.type,
                 value: "",
                 name: file.name,
-                tokenCount: tokenCount ?? undefined,
+                // Firestore rejects undefined fields, so omit an unavailable count
+                ...(tokenCount !== null && { tokenCount }),
                 file: file
             } as GrantContext);
         }));

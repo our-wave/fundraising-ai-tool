@@ -24,7 +24,7 @@ class GeminiService {
 
     // Create a `GenerativeModel` instance with a model that supports your use case
     model = getGenerativeModel(this.ai, {
-        model: "gemini-2.5-flash"
+        model: "gemini-flash-latest"
     });
 
 
@@ -56,7 +56,7 @@ class GeminiService {
 
         // Create a `GenerativeModel` instance with a model that supports your use case
         const jModel = getGenerativeModel(this.ai, {
-            model: "gemini-2.5-flash",
+            model: "gemini-flash-latest",
             // In the generation config, set the `responseMimeType` to `application/json`
             // and pass the JSON schema object into `responseSchema`.
             generationConfig: {

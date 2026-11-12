@@ -1,27 +1,24 @@
 /**
- * Institution AI Service
- * This service interacts with the AI backend to generate content related to institutions.
- * It uses the Firebase AI SDK to create a generative model that can respond to prompts
- * about institutions, such as listing philanthropic organizations in a specific area.  
- * 
- * Provision Firebase application  in Google Cloud
+ * Grant AI Service
+ * Generates grant content with Gemini through Firebase AI Logic (Gemini Developer API backend).
+ * Requests are authenticated with the app's Firebase config, so no separate Gemini API key is needed.
+ *
+ * Provision Firebase application in the Firebase console
  * <ol>
- * <li>Go to the Google Cloud Console.</li>
- * <li>Select an existing project.</li>
- * <li>Navigate to the "APIs & Services" page.</li>
- * <li>Click on "Credential".</li>
- * <li>Edit API (the key should match the API key in the .env file).</li>
- * <li>Enable the "Generative Language API" and "Firebase AI Logic API" restrictions.</li>
+ * <li>Open AI Logic and click "Get started".</li>
+ * <li>Choose the Gemini Developer API provider and enable it.</li>
  * </ol>
  */
 
-import { createPartFromText, createPartFromUri, createUserContent, GoogleGenAI, Part } from "@google/genai";
-import { storageService } from "../../App";
-import { StorageFile } from "../../services/OurWaveStorageService";
+import { firebaseClient } from "@digitalaidseattle/firebase";
+import { getAI, getGenerativeModel, GoogleAIBackend, Part, Schema } from "firebase/ai";
 import { GrantContext } from "../../types";
 import { SettingsService } from "../../services/settingsService";
 
-const CLOUD_FOLDER = import.meta.env.VITE_FIREBASE_STORAGE_FOLDER;
+export type AiResponse = {
+    text: string;
+    usageMetadata?: { totalTokenCount: number };
+};
 
 class GrantAiService {
 
@@ -35,63 +32,59 @@ class GrantAiService {
         return GrantAiService.instance;
     }
 
-    // Lazy initialize so missing key does not crash page render.
-    private ai?: GoogleGenAI;
+    private ai = getAI(firebaseClient, { backend: new GoogleAIBackend() });
     private models: string[] = [];
 
     constructor() {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (apiKey) {
-            this.ai = new GoogleGenAI({ apiKey });
-        }
         SettingsService.getInstance()
             .getSettings()
             .then(settings => this.models = settings.models ?? [])
-    }
-
-    private requireAi(): GoogleGenAI {
-        if (!this.ai) {
-            throw new Error("Gemini API key is missing. Set VITE_GEMINI_API_KEY in your environment.");
-        }
-        return this.ai;
     }
 
     /**
      * Runs a basic text generation request.
      * This is for prompts where we just want the model to return a text response.
      */
-    async query(prompt: string, modelType?: string, contexts?: GrantContext[]): Promise<any> {
-        const ai = this.requireAi();
-        const parts = this.createParts(contexts ?? []);
-        return await ai.models.generateContent({
-            model: modelType ?? this.getDefaultModel(),
-            contents: createUserContent([
-                prompt, ...parts
-            ]),
-        });
-    }
-
-    createParts(contexts: GrantContext[]): Part[] {
-        const parts: Part[] = [];
-        contexts.forEach(async (gc, idx) => {
-            if (gc.type === 'text') {
-                parts.push(createPartFromText(gc.value!));
-            } else {
-                const uri = await storageService.getDownloadURL(`${CLOUD_FOLDER}/${gc.name}`);
-                parts.push(createPartFromUri(uri, contexts[idx].type));
-            }
-        });
-        return parts;
-    }
-
-    createSchema(schemaParams: string[]): any {
+    async query(prompt: string, modelType?: string, contexts?: GrantContext[]): Promise<AiResponse> {
+        const parts = await this.createParts(contexts ?? []);
+        const result = await getGenerativeModel(this.ai, { model: modelType ?? this.getDefaultModel() })
+            .generateContent([prompt, ...parts]);
         return {
-            type: 'object',
-            properties: Object.fromEntries(
-                schemaParams.map(field => [field, { type: "string" }])
-            ),
-            required: schemaParams
+            text: result.response.text(),
+            usageMetadata: result.response.usageMetadata
         };
+    }
+
+    async createParts(contexts: GrantContext[]): Promise<Part[]> {
+        return Promise.all(contexts.map(async gc => {
+            if (gc.type === 'text') {
+                return { text: gc.value! } as Part;
+            }
+            if (!gc.file && !gc.fileUrl) {
+                throw new Error(`File "${gc.name}" has not been uploaded`);
+            }
+            // The Gemini Developer API only accepts file contents inline, not by URL
+            const blob: Blob = gc.file ?? await fetch(gc.fileUrl!).then(res => res.blob());
+            return this.toInlinePart(blob, gc.type);
+        }));
+    }
+
+    private async toInlinePart(blob: Blob, mimeType: string): Promise<Part> {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        });
+        return { inlineData: { mimeType, data: dataUrl.split(',')[1] } };
+    }
+
+    createSchema(schemaParams: string[]): Schema {
+        return Schema.object({
+            properties: Object.fromEntries(
+                schemaParams.map(field => [field, Schema.string()])
+            )
+        });
     }
     /**
      * Sends a prompt to the AI and tells it which fields to return.
@@ -104,74 +97,37 @@ class GrantAiService {
         schemaParams: string[],
         modelType?: string,
         contexts?: GrantContext[],
-    ): Promise<any> {
-        const ai = this.requireAi();
-        const parts = this.createParts(contexts ?? []);
-        console.log('parameterizedQuery parts:', parts);
-        const responseSchema = this.createSchema(schemaParams);
-        return await ai.models.generateContent({
+    ): Promise<AiResponse> {
+        const parts = await this.createParts(contexts ?? []);
+        const model = getGenerativeModel(this.ai, {
             model: modelType ?? this.getDefaultModel(),
-            contents: [prompt, ...parts],
-            config: {
+            generationConfig: {
                 responseMimeType: "application/json",
-                responseJsonSchema: responseSchema,
+                responseSchema: this.createSchema(schemaParams),
             },
         });
+        const result = await model.generateContent([prompt, ...parts]);
+        return {
+            text: result.response.text(),
+            usageMetadata: result.response.usageMetadata
+        };
     }
 
     async calcTokenCount(model: string, content: string): Promise<number> {
-        const ai = this.requireAi();
-        return ai.models
-            .countTokens({
-                model: model,
-                contents: ["Count tokens for this document", content]
-            })
+        return getGenerativeModel(this.ai, { model })
+            .countTokens(["Count tokens for this document", content])
             .then(response => response.totalTokens ?? 0);
     }
 
     async calcFileTokenCount(model: string, file: File): Promise<number | null> {
         try {
-            const ai = this.requireAi();
-            console.log("Calculating token count for file:", file);
-            const uploaded = await ai.files.upload({
-                file: file,
-                config: { mimeType: file.type },
-            });
-            const response = await ai.models.countTokens({
-                model: model,
-                contents: createUserContent([
-                    "Count tokens for this document",
-                    createPartFromUri(uploaded.uri!, uploaded.mimeType!),
-                ])
-            });
+            const part = await this.toInlinePart(file, file.type);
+            const response = await getGenerativeModel(this.ai, { model })
+                .countTokens(["Count tokens for this document", part]);
             return response.totalTokens ?? 0;
         } catch (err) {
-            // NOTE: ai.files.upload() is a server-side Gemini Files API — it fails in the
-            // browser due to CORS and API key restrictions. Token count will be unavailable
-            // for binary files (e.g. PDFs) uploaded directly from the browser.
-            // calcStorageFileTokenCount has the same issue and also returns null-equivalent.
-            // TODO: Move file token counting to a Firebase Cloud Function.
             console.error("Error calculating token count for file", err);
             return null;
-        }
-    }
-
-    async calcStorageFileTokenCount(model: string, file: StorageFile): Promise<number> {
-        try {
-            const ai = this.requireAi();
-            const uri = await storageService.getDownloadURL(file.fullPath);
-            return ai.models
-                .countTokens({
-                    model: model,
-                    contents: createUserContent([
-                        "Count tokens for this document",
-                        createPartFromUri(uri, file.type ?? "application/octet-stream"),
-                    ])
-                })
-                .then(response => response.totalTokens ?? 0);
-        } catch (err) {
-            console.error("Error calculating token count for FirebaseStorageFile", err);
-            return 0;
         }
     }
 

@@ -17,32 +17,36 @@ async function organizeContextsFiles(recipe: GrantRecipe): Promise<GrantContext[
         .list(`${GLOUD_FOLDER}/${recipe.id}`)
         .then((files: any[]) => files.map((file: any) => file.name));
 
-    const updatedContexts: GrantContext[] = [];
-    recipe.contexts.forEach(async context => {
+    const updatedContexts = await Promise.all(recipe.contexts.map(async (context): Promise<GrantContext | null> => {
         if (context.type === 'text') {
-            updatedContexts.push(context);
+            return context;
         } else if (context.file! instanceof File) {
             // Existing files will be overwritten
+            const index = cloudFiles.indexOf(context.file!.name);
+            if (index > -1) {  // keep the file being overwritten
+                cloudFiles.splice(index, 1);
+            }
             const url = await storageService.upload(`${GLOUD_FOLDER}/${recipe.id}/${context.file!.name}`, context.file!);
             const newContext = { ...context, fileUrl: url };
             delete newContext.file;
-            updatedContexts.push(newContext);
+            return newContext;
         } else {
             const index = cloudFiles.indexOf(context.name);
             if (index > -1) {  // remove from cloudFiles list
                 cloudFiles.splice(index, 1);
-                updatedContexts.push(context);
+                return context;
             } else {
                 console.error('not in the cloud & no file to upload', context);
+                return null;
             }
         }
-    });
+    }));
 
     // remove unwanted files
-    cloudFiles.forEach(async fileName => {
-        await storageService.removeFile(`${GLOUD_FOLDER}/${recipe.id}/${fileName}`)
-    })
-    return updatedContexts;
+    await Promise.all(cloudFiles.map(fileName =>
+        storageService.removeFile(`${GLOUD_FOLDER}/${recipe.id}/${fileName}`)
+    ));
+    return updatedContexts.filter((context): context is GrantContext => context !== null);
 }
 
 export async function saveRecipe(recipe: GrantRecipe): Promise<GrantRecipe> {

@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "our-wave",
+    "site": "ai-fundraising-tool",
     "public": "dist",
     "ignore": [
       "firebase.json",

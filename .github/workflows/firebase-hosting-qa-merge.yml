@@ -12,6 +12,10 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
       - run: |
           touch .env
           echo VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }} >> .env
@@ -21,12 +25,11 @@ jobs:
           echo VITE_GRANT_RECIPES_COLLECTION=grant-recipes-qa >> .env
           echo VITE_GRANT_PROPOSALS_COLLECTION=grant-proposal-qa >> .env
           echo VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }} >> .env
-          echo VITE_GEMINI_API_KEY=${{ secrets.VITE_GEMINI_API_KEY }} >> .env
           cat .env
           npm install && npm run build -- --mode qa
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_OUR_WAVE }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AI_FUNDRAISING_TOOL }}
           channelId: qa
-          projectId: our-wave
+          projectId: ai-fundraising-tool
